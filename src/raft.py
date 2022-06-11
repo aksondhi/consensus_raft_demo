@@ -1,5 +1,6 @@
 import random
 from enum import Enum
+from uuid import uuid4
 
 from src.server import Server
 
@@ -25,6 +26,7 @@ class Node:
         self.votes_received = {}
         self.sent_length = []
         self.acked_length = []
+        self.node_id = uuid4()
 
         # time tracking
         self.clock = 0
@@ -45,3 +47,12 @@ class Node:
         self.votes_received = {}
         self.sent_length = []
         self.acked_length = []
+
+    def tick(self):
+        self.clock += 1
+        self.heartbeat_timeout -= 1
+        if self.current_role is Role.CANDIDATE:
+            self.election_timeout -= 1
+            if self.election_timeout:
+                # Todo handle election timeout
+                pass
