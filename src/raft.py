@@ -1,6 +1,10 @@
 import random
+import uuid
 from enum import Enum
+from typing import List, Any
 from uuid import uuid4
+
+from pydantic import BaseModel
 
 from src.server import Server
 
@@ -14,12 +18,33 @@ class Role(Enum):
     LEADER = "LEADER"
 
 
+class LogMessage(BaseModel):
+    term: int
+    message: Any
+
+
+class AppendEntryRequest(BaseModel):
+    term: int
+    leader_id: int
+    entries: List[Any]
+    previous_log_index: int
+    previous_log_term: int
+    leader_commit: int
+
+
+class VoteRequest(BaseModel):
+    candidate_id: uuid.UUID
+    term: int
+    last_log_index: int
+    last_log_term: int
+
+
 class Node:
     def __init__(self, server: Server):
         self.server = server
         self.current_term = 0
         self.voted_for = None
-        self.log = []
+        self.log: List[LogMessage] = []
         self.commit_length = 0
         self.current_role = Role.FOLLOWER
         self.current_leader = None
@@ -48,11 +73,27 @@ class Node:
         self.sent_length = []
         self.acked_length = []
 
+    def handle_heartbeat_timeout_or_election_timeout(self):
+        self.current_term += 1
+        self.current_role = Role.CANDIDATE
+        self.voted_for = self.node_id
+        self.votes_received = {self.node_id: True}
+        last_term = 0
+        if len(self.log) > 0:
+            last_term = self.log[-1].term
+        self.server.broadcast_message(
+            VoteRequest(
+                candidate_id=self.node_id,
+                term=self.current_term,
+                last_log_index=len(self.log),
+                last_log_term=last_term,
+            )
+        )
+
     def tick(self):
         self.clock += 1
         self.heartbeat_timeout -= 1
         if self.current_role is Role.CANDIDATE:
             self.election_timeout -= 1
-            if self.election_timeout:
-                # Todo handle election timeout
-                pass
+        if self.heartbeat_timeout <= 0 or (self.current_role is Role.CANDIDATE and self.election_timeout <= 0):
+            self.handle_heartbeat_timeout_or_election_timeout()

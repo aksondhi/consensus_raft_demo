@@ -1,11 +1,14 @@
+import random
 import unittest
-from src.raft import Node, Server, Role
+from src.raft import Node, Server, Role, VoteRequest, LogMessage
 
 
 class NodeTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = Server()
+
     def test_initialization(self):
-        server = Server()
-        node = Node(server)
+        node = Node(self.server)
         assert node.current_term == 0
         assert node.voted_for is None
         assert len(node.log) == 0
@@ -17,8 +20,7 @@ class NodeTestCase(unittest.TestCase):
         assert len(node.acked_length) == 0
 
     def test_recovery_from_crash(self):
-        server = Server()
-        node = Node(server)
+        node = Node(self.server)
         node.current_role = Role.LEADER
         node.current_leader = node.node_id
         node.votes_received = {"some_key": "some_value"}
@@ -33,15 +35,50 @@ class NodeTestCase(unittest.TestCase):
         assert len(node.acked_length) == 0
 
     def test_clock_ticks(self):
-        server = Server()
-        node = Node(server)
+        node = Node(self.server)
         initial_heartbeat_timeout = node.heartbeat_timeout
         node.tick()
         assert node.clock == 1
         assert initial_heartbeat_timeout - 1 == node.heartbeat_timeout
 
     def test_heartbeat_timeout(self):
-        pass
+        node = Node(self.server)
+        self.server.add_node(node)
+        node.heartbeat_timeout = 0
+        node.tick()
+        assert node.current_term == 1
+        assert node.current_role is Role.CANDIDATE
+        assert node.voted_for == node.node_id
+        assert node.votes_received == {node.node_id: True}
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], VoteRequest)
+        assert self.server.message_queue[0].candidate_id == node.node_id
+        assert self.server.message_queue[0].term == node.current_term
+        assert self.server.message_queue[0].last_log_index == len(node.log)
+        assert self.server.message_queue[0].last_log_term == 0
+
+    def test_heartbeat_timeout_with_log_data(self):
+        node = Node(self.server)
+        self.server.add_node(node)
+        initial_election_timer = node.election_timeout
+        node.heartbeat_timeout = 0
+        node.log = [LogMessage(term=random.randint(1, 100), message="some_message")]
+        node.current_term = node.log[-1].term
+        node.tick()
+        assert node.current_term == node.log[-1].term + 1
+        assert node.current_role is Role.CANDIDATE
+        assert node.voted_for == node.node_id
+        assert node.votes_received == {node.node_id: True}
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], VoteRequest)
+        assert self.server.message_queue[0].candidate_id == node.node_id
+        assert self.server.message_queue[0].term == node.current_term
+        assert self.server.message_queue[0].last_log_index == len(node.log)
+        assert self.server.message_queue[0].last_log_term == node.log[-1].term
+        assert node.election_timeout == initial_election_timer
+
+        node.tick()
+        assert node.election_timeout == initial_election_timer - 1
 
     def test_election_timeout(self):
         pass
