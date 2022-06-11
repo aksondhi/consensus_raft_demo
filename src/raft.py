@@ -39,6 +39,13 @@ class VoteRequest(BaseModel):
     last_log_term: int
 
 
+class VoteResponse(BaseModel):
+    node_id: uuid.UUID
+    candidate_id: uuid.UUID
+    term: int
+    vote_granted: bool
+
+
 class Node:
     def __init__(self, server: Server):
         self.server = server
@@ -65,6 +72,39 @@ class Node:
 
     def set_election_timeout(self):
         self.election_timeout = ELECTION_TIMEOUT * random.randint(1, 10)
+
+    def handle_message(self, message):
+        if isinstance(message, VoteRequest) and message.candidate_id != self.node_id:
+            if message.term > self.current_term:
+                self.current_term = message.term
+                self.current_role = Role.FOLLOWER
+                self.voted_for = None
+            last_term = 0
+            if len(self.log) > 0:
+                last_term = self.log[-1].term
+            log_ok = (message.last_log_term > last_term) or (
+                message.last_log_term == last_term and message.last_log_index >= len(self.log)
+            )
+
+            if message.term == self.current_term and log_ok and self.voted_for in [message.candidate_id, None]:
+                self.voted_for = message.candidate_id
+                self.server.broadcast_message(
+                    VoteResponse(
+                        node_id=self.node_id,
+                        candidate_id=message.candidate_id,
+                        term=self.current_term,
+                        vote_granted=True,
+                    )
+                )
+            else:
+                self.server.broadcast_message(
+                    VoteResponse(
+                        node_id=self.node_id,
+                        candidate_id=message.candidate_id,
+                        term=self.current_term,
+                        vote_granted=False,
+                    )
+                )
 
     def handle_crash(self):
         self.current_role = Role.FOLLOWER

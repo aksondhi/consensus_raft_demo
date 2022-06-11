@@ -1,6 +1,6 @@
 import random
 import unittest
-from src.raft import Node, Server, Role, VoteRequest, LogMessage
+from src.raft import Node, Server, Role, VoteRequest, LogMessage, VoteResponse
 
 
 class NodeTestCase(unittest.TestCase):
@@ -118,3 +118,28 @@ class NodeTestCase(unittest.TestCase):
         assert self.server.message_queue[0].last_log_term == node.log[-1].term
         assert node.election_timeout > 0
         assert node.heartbeat_timeout > 0
+
+    def test_election(self):
+        node1 = Node(self.server)
+        node2 = Node(self.server)
+        self.server.add_node(node1)
+        self.server.add_node(node2)
+
+        # node1 requests a vote
+        node1.heartbeat_timeout = 1
+        self.server.iterate()
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], VoteRequest)
+        assert self.server.message_queue[0].term == 1
+        assert self.server.message_queue[0].candidate_id == node1.node_id
+        assert self.server.message_queue[0].last_log_index == 0
+        assert self.server.message_queue[0].last_log_term == 0
+
+        # only node2 responds with vote
+        self.server.iterate()
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], VoteResponse)
+        assert self.server.message_queue[0].term == node1.current_term == node2.current_term
+        assert self.server.message_queue[0].node_id == node2.node_id
+        assert self.server.message_queue[0].candidate_id == node1.node_id
+        assert self.server.message_queue[0].vote_granted

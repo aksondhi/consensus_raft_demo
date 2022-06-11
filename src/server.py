@@ -17,8 +17,8 @@ class Server:
             node.tick()
 
     def iterate(self):
-        self.__tick_clock()
         self.__distribute_message()
+        self.__tick_clock()
 
     def add_node(self, node):
         self.nodes.append(node)
