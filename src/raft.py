@@ -89,6 +89,8 @@ class Node:
                 last_log_term=last_term,
             )
         )
+        self.set_election_timeout()
+        self.set_heartbeat_timeout()
 
     def tick(self):
         self.clock += 1

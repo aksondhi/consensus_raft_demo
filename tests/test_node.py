@@ -44,7 +44,7 @@ class NodeTestCase(unittest.TestCase):
     def test_heartbeat_timeout(self):
         node = Node(self.server)
         self.server.add_node(node)
-        node.heartbeat_timeout = 0
+        node.heartbeat_timeout = 1
         node.tick()
         assert node.current_term == 1
         assert node.current_role is Role.CANDIDATE
@@ -56,12 +56,13 @@ class NodeTestCase(unittest.TestCase):
         assert self.server.message_queue[0].term == node.current_term
         assert self.server.message_queue[0].last_log_index == len(node.log)
         assert self.server.message_queue[0].last_log_term == 0
+        assert node.election_timeout > 0
+        assert node.heartbeat_timeout > 0
 
     def test_heartbeat_timeout_with_log_data(self):
         node = Node(self.server)
         self.server.add_node(node)
-        initial_election_timer = node.election_timeout
-        node.heartbeat_timeout = 0
+        node.heartbeat_timeout = 1
         node.log = [LogMessage(term=random.randint(1, 100), message="some_message")]
         node.current_term = node.log[-1].term
         node.tick()
@@ -75,10 +76,45 @@ class NodeTestCase(unittest.TestCase):
         assert self.server.message_queue[0].term == node.current_term
         assert self.server.message_queue[0].last_log_index == len(node.log)
         assert self.server.message_queue[0].last_log_term == node.log[-1].term
-        assert node.election_timeout == initial_election_timer
-
-        node.tick()
-        assert node.election_timeout == initial_election_timer - 1
+        assert node.election_timeout > 0
+        assert node.heartbeat_timeout > 0
 
     def test_election_timeout(self):
-        pass
+        node = Node(self.server)
+        self.server.add_node(node)
+        node.election_timeout = 1
+        node.current_role = Role.CANDIDATE
+        node.tick()
+        assert node.current_term == 1
+        assert node.current_role is Role.CANDIDATE
+        assert node.voted_for == node.node_id
+        assert node.votes_received == {node.node_id: True}
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], VoteRequest)
+        assert self.server.message_queue[0].candidate_id == node.node_id
+        assert self.server.message_queue[0].term == node.current_term
+        assert self.server.message_queue[0].last_log_index == len(node.log)
+        assert self.server.message_queue[0].last_log_term == 0
+        assert node.election_timeout > 0
+        assert node.heartbeat_timeout > 0
+
+    def test_election_timeout_with_log_data(self):
+        node = Node(self.server)
+        self.server.add_node(node)
+        node.current_role = Role.CANDIDATE
+        node.election_timeout = 1
+        node.log = [LogMessage(term=random.randint(1, 100), message="some_message")]
+        node.current_term = node.log[-1].term
+        node.tick()
+        assert node.current_term == node.log[-1].term + 1
+        assert node.current_role is Role.CANDIDATE
+        assert node.voted_for == node.node_id
+        assert node.votes_received == {node.node_id: True}
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], VoteRequest)
+        assert self.server.message_queue[0].candidate_id == node.node_id
+        assert self.server.message_queue[0].term == node.current_term
+        assert self.server.message_queue[0].last_log_index == len(node.log)
+        assert self.server.message_queue[0].last_log_term == node.log[-1].term
+        assert node.election_timeout > 0
+        assert node.heartbeat_timeout > 0
