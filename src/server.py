@@ -2,6 +2,7 @@ class Server:
     def __init__(self):
         self.nodes = []
         self.message_queue = []
+        self.app_messages = []
 
     def __distribute_message(self):
         if self.message_queue:
@@ -22,3 +23,6 @@ class Server:
 
     def add_node(self, node):
         self.nodes.append(node)
+
+    def add_app_msgs(self, messages):
+        self.app_messages += messages

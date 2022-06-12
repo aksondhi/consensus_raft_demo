@@ -2,7 +2,7 @@ import random
 import unittest
 from uuid import uuid4
 
-from src.raft import Node, Server, Role, VoteRequest, LogMessage, VoteResponse
+from src.raft import Node, Server, Role, VoteRequest, LogMessage, VoteResponse, LogRequest, LogResponse
 
 
 class NodeTestCase(unittest.TestCase):
@@ -146,6 +146,27 @@ class NodeTestCase(unittest.TestCase):
         assert self.server.message_queue[0].candidate_id == node1.node_id
         assert self.server.message_queue[0].vote_granted
 
+        # node 1 accepts and replicates log
+        self.server.iterate()
+
+        assert len(self.server.message_queue) == 1
+        assert node1.current_role is Role.LEADER
+        assert node1.current_leader is node1.node_id
+        assert isinstance(self.server.message_queue[0], LogRequest)
+        assert self.server.message_queue[0].previous_log_index == 0
+        assert self.server.message_queue[0].previous_log_term == 0
+        assert self.server.message_queue[0].commit_length == 0
+
+        # node2 acknowledges 0
+        self.server.iterate()
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], LogResponse)
+        assert node2.current_leader is node1.node_id
+        assert self.server.message_queue[0].node_id == node2.node_id
+        assert self.server.message_queue[0].term == 1
+        assert self.server.message_queue[0].success
+        assert self.server.message_queue[0].acknowledged == 0
+
     def test_election_already_voted(self):
         # node2 is leader
         node1 = Node(self.server)
@@ -173,3 +194,52 @@ class NodeTestCase(unittest.TestCase):
         assert self.server.message_queue[0].node_id == node2.node_id
         assert self.server.message_queue[0].candidate_id == node1.node_id
         assert not self.server.message_queue[0].vote_granted
+
+    def test_broadcast_log_message_consensus(self):
+        node1 = Node(self.server)
+        node2 = Node(self.server)
+        self.server.add_node(node1)
+        self.server.add_node(node2)
+
+        node1.current_role = Role.LEADER
+        node1.current_leader = node1.node_id
+        node1.current_term = 1
+        node1.acked_length = {node2.node_id: 0}
+        node1.sent_length = {node2.node_id: 0}
+
+        node2.current_leader = node1.node_id
+        node2.current_term = 1
+        self.server.message_queue = [LogResponse(node_id=node2.node_id, term=1, success=True, acknowledged=0)]
+
+        # leader processes LogResponse
+        node1.broadcast_log_message(LogMessage(term=1, message="hello"))
+        self.server.iterate()
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], LogRequest)
+
+        self.server.iterate()
+        assert len(self.server.message_queue) == 1
+        assert isinstance(self.server.message_queue[0], LogResponse)
+
+        self.server.iterate()
+        assert len(self.server.app_messages) == 1
+        assert isinstance(self.server.app_messages[0], LogMessage)
+        assert self.server.app_messages[0].term == 1
+        assert self.server.app_messages[0].message == "hello"
+
+    def test_consensus_in_random_set_of_nodes(self):
+        nodes = [Node(self.server) for i in range(random.randint(1, 100))]
+        for node in nodes:
+            self.server.add_node(node)
+
+        while not any([node.current_role is Role.LEADER for node in nodes]):
+            self.server.iterate()
+        leader = [node for node in nodes if node.current_role is Role.LEADER][0]
+        message = LogMessage(term=leader.current_term, message="Hello World!")
+        leader.broadcast_log_message(message)
+        self.server.iterate()
+
+        while not self.server.app_messages:
+            self.server.iterate()
+        assert len(self.server.app_messages) == 1
+        assert message == self.server.app_messages[0]
